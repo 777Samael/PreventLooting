@@ -34,6 +34,8 @@ namespace Oxide.Plugins
         bool CanLootBackpack;
         bool CanLootBackpackPlugin;
         bool CanPickup;
+        bool CanPickupBackpack;
+        List<string> BackpackShortnames;
         bool CanOvenToggle;
         bool IncludeZoneMode;
         bool UseZoneManager;
@@ -118,6 +120,8 @@ namespace Oxide.Plugins
             Config["CanLootBackpack"] = CanLootBackpack = GetConfig("CanLootBackpack", false);
             Config["CanLootBackpackPlugin"] = CanLootBackpackPlugin = GetConfig("CanLootBackpackPlugin", false);
             Config["CanPickup"] = CanPickup = GetConfig("CanPickup", false);
+            Config["CanPickupBackpack"] = CanPickupBackpack = GetConfig("CanPickupBackpack", false);
+            Config["BackpackShortnames"] = BackpackShortnames = GetConfigList("BackpackShortnames", new List<string>());
             Config["CanOvenToggle"] = CanOvenToggle = GetConfig("CanOvenToggle", false);
             Config["UseZoneManager"] = UseZoneManager = GetConfig("UseZoneManager", false);
             Config["ZoneManagerIncludeMode"] = IncludeZoneMode = GetConfig("ZoneManagerIncludeMode", false);
@@ -234,7 +238,7 @@ namespace Oxide.Plugins
             if (CheckHelper(player, entity)) return null;
             if (entity.OwnerID != 0 && entity.OwnerID != player.userID && !IsFriend(entity.OwnerID, player.userID))
             {
-                if (item.info.itemid == -907422733 || item.info.itemid == 2068884361 || item.info.itemid == -874650016)
+                if (CanPickupBackpack && BackpackShortnames.Contains(item.info.shortname))
                 {
                     if (UseCupboard || UseOnlyInCupboardRange)
                         if (CheckAuthCupboard(entity, player)) return null;
@@ -1072,6 +1076,19 @@ namespace Oxide.Plugins
 
         #region Helpers
         T GetConfig<T>(string name, T defaultValue) => Config[name] == null ? defaultValue : (T)Convert.ChangeType(Config[name], typeof(T));
+        List<string> GetConfigList(string name, List<string> defaultValue)
+        {
+            if (Config[name] == null) return defaultValue;
+            if (Config[name] is List<object> objectList)
+            {
+                return objectList.Select(entry => entry.ToString()).ToList();
+            }
+            if (Config[name] is List<string> stringList)
+            {
+                return stringList;
+            }
+            return defaultValue;
+        }
         #endregion
     }
 }
