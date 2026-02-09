@@ -46,6 +46,8 @@ namespace Oxide.Plugins
         bool UseOnlyInCupboardRange;
         List<object> UseOnlyInCupboardRangeInclude;
         bool WipeDetected = false;
+        bool ConfigHadBackpackShortnames = false;
+        readonly HashSet<int> TrackedBackpackItemIds = new HashSet<int> { -907422733, 2068884361, -874650016 };
         List<object> ZoneID;
         List<object> ExcludeEntities;
         string PLPerm = "preventlooting.use";
@@ -94,7 +96,11 @@ namespace Oxide.Plugins
                 PrintWarning("Wipe detected! Clearing all share data!");
                 storedData.Data.Clear();
                 Interface.Oxide.DataFileSystem.WriteObject("PreventLooting", storedData);
+                OverwriteBackpackShortnamesConfig();
+                WipeDetected = false;
+                return;
             }
+            ValidateBackpackShortnamesConfig();
         }
         void OnServerSave() => Interface.Oxide.DataFileSystem.WriteObject("PreventLooting", storedData);
         void Unload() => Interface.Oxide.DataFileSystem.WriteObject("PreventLooting", storedData);
@@ -104,6 +110,7 @@ namespace Oxide.Plugins
         #region Configuration
         protected override void LoadDefaultConfig()
         {
+            ConfigHadBackpackShortnames = Config["BackpackShortnames"] != null;
             Config["UsePermission"] = UsePermission = GetConfig("UsePermission", false);
             Config["UseFriendsAPI"] = UseFriendsAPI = GetConfig("UseFriendsAPI", true);
             Config["UseTeams"] = UseTeams = GetConfig("UseTeams", true);
@@ -1071,6 +1078,74 @@ namespace Oxide.Plugins
             {
                 SendReply(player, lang.GetMessage("EntityNotFound", this, player.UserIDString));
             }
+        }
+        #endregion
+
+        #region Backpack Shortnames
+        List<string> GetDiscoveredBackpackShortnames()
+        {
+            if (ItemManager.itemList == null)
+            {
+                return new List<string>();
+            }
+
+            return ItemManager.itemList
+                .Where(item => item != null && !string.IsNullOrEmpty(item.shortname))
+                .Where(item => item.shortname.IndexOf("backpack", StringComparison.OrdinalIgnoreCase) >= 0)
+                .Select(item => item.shortname)
+                .Distinct()
+                .ToList();
+        }
+
+        List<string> GetTrackedBackpackShortnames()
+        {
+            if (ItemManager.itemList == null)
+            {
+                return new List<string>();
+            }
+
+            return ItemManager.itemList
+                .Where(item => item != null && TrackedBackpackItemIds.Contains(item.itemid))
+                .Select(item => item.shortname)
+                .Where(shortname => !string.IsNullOrEmpty(shortname))
+                .Distinct()
+                .ToList();
+        }
+
+        void OverwriteBackpackShortnamesConfig()
+        {
+            BackpackShortnames = GetDiscoveredBackpackShortnames();
+            Config["BackpackShortnames"] = BackpackShortnames;
+            SaveConfig();
+        }
+
+        void ValidateBackpackShortnamesConfig()
+        {
+            var discoveredBackpackShortnames = GetDiscoveredBackpackShortnames();
+            if (!ConfigHadBackpackShortnames)
+            {
+                BackpackShortnames = discoveredBackpackShortnames;
+                Config["BackpackShortnames"] = BackpackShortnames;
+                SaveConfig();
+                return;
+            }
+
+            var trackedBackpackShortnames = GetTrackedBackpackShortnames();
+            var configTrackedShortnames = BackpackShortnames
+                .Where(shortname => trackedBackpackShortnames.Contains(shortname))
+                .ToList();
+
+            if (!HaveSameEntries(configTrackedShortnames, trackedBackpackShortnames))
+            {
+                PrintWarning("Configured BackpackShortnames differ from discovered backpack items for tracked item IDs; plugin loaded anyway.");
+            }
+        }
+
+        bool HaveSameEntries(List<string> left, List<string> right)
+        {
+            var leftSet = new HashSet<string>(left);
+            var rightSet = new HashSet<string>(right);
+            return leftSet.SetEquals(rightSet);
         }
         #endregion
 
