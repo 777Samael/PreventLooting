@@ -8,7 +8,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("PreventLooting", "CaseMan", "1.16.1", ResourceId = 2469)]
+    [Info("PreventLooting", "CaseMan&Samael", "1.17.0", ResourceId = 2469)]
     [Description("Prevent looting by other players")]
 
     class PreventLooting : RustPlugin
@@ -34,6 +34,8 @@ namespace Oxide.Plugins
         bool CanLootBackpack;
         bool CanLootBackpackPlugin;
         bool CanPickup;
+        bool CanPickupBackpack;
+        List<string> BackpackShortnames;
         bool CanOvenToggle;
         bool IncludeZoneMode;
         bool UseZoneManager;
@@ -44,6 +46,8 @@ namespace Oxide.Plugins
         bool UseOnlyInCupboardRange;
         List<object> UseOnlyInCupboardRangeInclude;
         bool WipeDetected = false;
+        bool ConfigHadBackpackShortnames = false;
+        readonly HashSet<int> TrackedBackpackItemIds = new HashSet<int> { -907422733, 2068884361, -874650016 };
         List<object> ZoneID;
         List<object> ExcludeEntities;
         string PLPerm = "preventlooting.use";
@@ -92,7 +96,11 @@ namespace Oxide.Plugins
                 PrintWarning("Wipe detected! Clearing all share data!");
                 storedData.Data.Clear();
                 Interface.Oxide.DataFileSystem.WriteObject("PreventLooting", storedData);
+                OverwriteBackpackShortnamesConfig();
+                WipeDetected = false;
+                return;
             }
+            ValidateBackpackShortnamesConfig();
         }
         void OnServerSave() => Interface.Oxide.DataFileSystem.WriteObject("PreventLooting", storedData);
         void Unload() => Interface.Oxide.DataFileSystem.WriteObject("PreventLooting", storedData);
@@ -102,6 +110,7 @@ namespace Oxide.Plugins
         #region Configuration
         protected override void LoadDefaultConfig()
         {
+            ConfigHadBackpackShortnames = Config["BackpackShortnames"] != null;
             Config["UsePermission"] = UsePermission = GetConfig("UsePermission", false);
             Config["UseFriendsAPI"] = UseFriendsAPI = GetConfig("UseFriendsAPI", true);
             Config["UseTeams"] = UseTeams = GetConfig("UseTeams", true);
@@ -118,6 +127,8 @@ namespace Oxide.Plugins
             Config["CanLootBackpack"] = CanLootBackpack = GetConfig("CanLootBackpack", false);
             Config["CanLootBackpackPlugin"] = CanLootBackpackPlugin = GetConfig("CanLootBackpackPlugin", false);
             Config["CanPickup"] = CanPickup = GetConfig("CanPickup", false);
+            Config["CanPickupBackpack"] = CanPickupBackpack = GetConfig("CanPickupBackpack", false);
+            Config["BackpackShortnames"] = BackpackShortnames = GetConfigList("BackpackShortnames", new List<string>());
             Config["CanOvenToggle"] = CanOvenToggle = GetConfig("CanOvenToggle", false);
             Config["UseZoneManager"] = UseZoneManager = GetConfig("UseZoneManager", false);
             Config["ZoneManagerIncludeMode"] = IncludeZoneMode = GetConfig("ZoneManagerIncludeMode", false);
@@ -234,7 +245,7 @@ namespace Oxide.Plugins
             if (CheckHelper(player, entity)) return null;
             if (entity.OwnerID != 0 && entity.OwnerID != player.userID && !IsFriend(entity.OwnerID, player.userID))
             {
-                if (item.info.itemid == -907422733 || item.info.itemid == 2068884361 || item.info.itemid == -874650016)
+                if (!CanPickupBackpack && BackpackShortnames.Contains(item.info.shortname))
                 {
                     if (UseCupboard || UseOnlyInCupboardRange)
                         if (CheckAuthCupboard(entity, player)) return null;
@@ -1070,8 +1081,89 @@ namespace Oxide.Plugins
         }
         #endregion
 
+        #region Backpack Shortnames
+        List<string> GetDiscoveredBackpackShortnames()
+        {
+            if (ItemManager.itemList == null)
+            {
+                return new List<string>();
+            }
+
+            return ItemManager.itemList
+                .Where(item => item != null && !string.IsNullOrEmpty(item.shortname))
+                .Where(item => item.shortname.IndexOf("backpack", StringComparison.OrdinalIgnoreCase) >= 0)
+                .Select(item => item.shortname)
+                .Distinct()
+                .ToList();
+        }
+
+        List<string> GetTrackedBackpackShortnames()
+        {
+            if (ItemManager.itemList == null)
+            {
+                return new List<string>();
+            }
+
+            return ItemManager.itemList
+                .Where(item => item != null && TrackedBackpackItemIds.Contains(item.itemid))
+                .Select(item => item.shortname)
+                .Where(shortname => !string.IsNullOrEmpty(shortname))
+                .Distinct()
+                .ToList();
+        }
+
+        void OverwriteBackpackShortnamesConfig()
+        {
+            BackpackShortnames = GetDiscoveredBackpackShortnames();
+            Config["BackpackShortnames"] = BackpackShortnames;
+            SaveConfig();
+        }
+
+        void ValidateBackpackShortnamesConfig()
+        {
+            var discoveredBackpackShortnames = GetDiscoveredBackpackShortnames();
+            if (!ConfigHadBackpackShortnames)
+            {
+                BackpackShortnames = discoveredBackpackShortnames;
+                Config["BackpackShortnames"] = BackpackShortnames;
+                SaveConfig();
+                return;
+            }
+
+            var trackedBackpackShortnames = GetTrackedBackpackShortnames();
+            var configTrackedShortnames = BackpackShortnames
+                .Where(shortname => trackedBackpackShortnames.Contains(shortname))
+                .ToList();
+
+            if (!HaveSameEntries(configTrackedShortnames, trackedBackpackShortnames))
+            {
+                PrintWarning("Configured BackpackShortnames differ from discovered backpack items for tracked item IDs; plugin loaded anyway.");
+            }
+        }
+
+        bool HaveSameEntries(List<string> left, List<string> right)
+        {
+            var leftSet = new HashSet<string>(left);
+            var rightSet = new HashSet<string>(right);
+            return leftSet.SetEquals(rightSet);
+        }
+        #endregion
+
         #region Helpers
         T GetConfig<T>(string name, T defaultValue) => Config[name] == null ? defaultValue : (T)Convert.ChangeType(Config[name], typeof(T));
+        List<string> GetConfigList(string name, List<string> defaultValue)
+        {
+            if (Config[name] == null) return defaultValue;
+            if (Config[name] is List<object> objectList)
+            {
+                return objectList.Select(entry => entry.ToString()).ToList();
+            }
+            if (Config[name] is List<string> stringList)
+            {
+                return stringList;
+            }
+            return defaultValue;
+        }
         #endregion
     }
 }
