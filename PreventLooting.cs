@@ -8,7 +8,7 @@ using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("PreventLooting", "CaseMan", "1.16.1", ResourceId = 2469)]
+    [Info("PreventLooting", "CaseMan&Samael", "1.17.0", ResourceId = 2469)]
     [Description("Prevent looting by other players")]
 
     class PreventLooting : RustPlugin
@@ -245,7 +245,7 @@ namespace Oxide.Plugins
             if (CheckHelper(player, entity)) return null;
             if (entity.OwnerID != 0 && entity.OwnerID != player.userID && !IsFriend(entity.OwnerID, player.userID))
             {
-                if (CanPickupBackpack && BackpackShortnames.Contains(item.info.shortname))
+                if (!CanPickupBackpack && BackpackShortnames.Contains(item.info.shortname))
                 {
                     if (UseCupboard || UseOnlyInCupboardRange)
                         if (CheckAuthCupboard(entity, player)) return null;
